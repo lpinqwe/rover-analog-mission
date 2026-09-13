@@ -185,11 +185,11 @@ class MainActivity : AppCompatActivity() {
         controlPanel.addView(label("Pull stick: up = forward, sideways = turn"))
         controlPanel.addView(joyPad)
 
-        // Панель направлений: дискретные кнопки (держать для движения).
-        // Надёжнее джойстика: команда уходит только при смене направления,
-        // плюс повторяется в pollTabs, пока кнопка зажата.
+        // Direction pad: discrete buttons (hold to move).
+        // More reliable than the joystick: a command is sent only on direction
+        // change, plus repeated in pollTabs while a button is held.
         controlPanel.addView(TextView(this).apply {
-            text = "Кнопки направления (удерживай)"
+            text = "Direction buttons (hold)"
             textSize = 12f
             setPadding(0, 6 * dp, 0, 0)
         })
@@ -220,14 +220,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         controlPanel.addView(padRow(
-            dirBtn("В←", 70, -45),
-            dirBtn("Вперёд", 100, 0),
-            dirBtn("В→", 70, 45),
+            dirBtn("FL◀", 70, -45),
+            dirBtn("Forward", 100, 0),
+            dirBtn("FR▶", 70, 45),
         ))
         controlPanel.addView(padRow(
-            dirBtn("Н←", -70, -45),
-            dirBtn("Назад", -100, 0),
-            dirBtn("Н→", -70, 45),
+            dirBtn("RL◀", -70, -45),
+            dirBtn("Backward", -100, 0),
+            dirBtn("RR▶", -70, 45),
         ))
 
         controlPanel.addView(LinearLayout(this).apply {
@@ -417,26 +417,26 @@ class MainActivity : AppCompatActivity() {
         runCatching { startService(intent) }
     }
 
-    /** Единый путь отдачи команды движения (джойстик и кнопки направлений). */
+    /** Single path for sending a movement command (joystick and direction buttons). */
     private fun driveTo(speed: Int, steer: Int) {
         lastSpeed = speed
         lastSteer = steer
         sendBle(GatewayService.EXTRA_CMD to "drive", GatewayService.EXTRA_SPEED to speed, GatewayService.EXTRA_STEER to steer)
     }
 
-    /* ---------------- Фоновый поллинг (статус/телеметрия/лог) ---------------- */
+    /* ---------------- Background polling (status/telemetry/log) ---------------- */
 
     private val pollTabs = object : Runnable {
         override fun run() {
-            // Keepalive: пока зажата кнопка или джойстик, повторяем последнюю команду,
-            // чтобы ESP не остановил моторы вачдогом (CMD_TIMEOUT_MS).
+            // Keepalive: while a button or the joystick is held, repeat the last command
+            // so the ESP doesn't stop the motors via the watchdog (CMD_TIMEOUT_MS).
             if ((joyActive || buttonHold) && (lastSpeed != 0 || lastSteer != 0)) {
                 sendBle(GatewayService.EXTRA_CMD to "drive", GatewayService.EXTRA_SPEED to lastSpeed, GatewayService.EXTRA_STEER to lastSteer)
             }
 
-            tvBle.text = if (GatewayService.bleConnected) "BLE: подключён — РОВЕР ГОТОВ"
-            else if (GatewayService.running) "BLE: подключение..."
-            else "BLE: не подключён (нажми «Запустить» в Настройках)"
+            tvBle.text = if (GatewayService.bleConnected) "BLE: connected — ROVER READY"
+            else if (GatewayService.running) "BLE: connecting..."
+            else "BLE: not connected (tap Start in Settings)"
 
             val t = GatewayService.lastTelemetry
             if (t != null) {
