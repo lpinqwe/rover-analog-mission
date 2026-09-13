@@ -48,7 +48,7 @@
   select, input, button.mini { background:#1b2431; color:#d8dee9; border:1px solid #2b3a52; border-radius:6px; padding:6px 8px; }
   button.mini { cursor:pointer; }
 
-  /* --- Нижняя панель с вкладками --- */
+  /* --- Bottom tab panel --- */
   .bottom { flex:0 0 300px; display:flex; flex-direction:column; padding:0 12px 12px; min-height:0; }
   .tabs { display:flex; gap:4px; flex:0 0 auto; }
   .tabbtn { padding:8px 16px; border:1px solid #222b3a; border-bottom:none; border-radius:8px 8px 0 0; background:#10151f; color:#8fa3bd; cursor:pointer; font-size:13px; }
@@ -56,7 +56,7 @@
   .tabpanel { flex:1 1 auto; display:none; background:#131822; border:1px solid #2a3a52; border-radius:0 8px 8px 8px; padding:10px; min-height:0; overflow:hidden; }
   .tabpanel.active { display:flex; flex-direction:column; }
 
-  /* MQTT лог */
+  /* MQTT log */
   #mqttLog { flex:1; font-family:ui-monospace,monospace; font-size:12px; overflow:auto; line-height:1.5; }
   #mqttLog .in  { color:#8fd0a0; }
   #mqttLog .out { color:#9fc2f0; }
@@ -65,7 +65,7 @@
   .logbar { flex:0 0 auto; display:flex; gap:8px; align-items:center; padding-bottom:6px; }
   .logbar label { font-size:12px; color:#8fa3bd; display:flex; gap:4px; align-items:center; }
 
-  /* Графики */
+  /* Graphs */
   #graphs { flex-wrap:wrap; align-content:flex-start; gap:10px; overflow:auto; }
   .chart { flex:1 1 30%; min-width:220px; background:#0f141d; border:1px solid #1c2430; border-radius:8px; padding:6px; height:180px; }
   .chart h3 { margin:0 0 4px; font-size:11px; color:#8fa3bd; text-transform:uppercase; letter-spacing:.05em; }
@@ -135,13 +135,13 @@
     </div>
 
     <div class="panel">
-      <h2>Телеметрия ESP32</h2>
+      <h2>ESP32 Telemetry</h2>
       <div class="stamp" id="espStamp">—</div>
       <table id="espTable"></table>
     </div>
 
     <div class="panel">
-      <h2>Телефон (GPS/IMU)</h2>
+      <h2>Phone (GPS/IMU)</h2>
       <div class="stamp" id="phoneStamp">—</div>
       <table id="phoneTable"></table>
     </div>
@@ -150,8 +150,8 @@
 
 <div class="bottom">
   <div class="tabs">
-    <button class="tabbtn active" id="tabMqtt">MQTT лог</button>
-    <button class="tabbtn" id="tabGraphs">Графики</button>
+    <button class="tabbtn active" id="tabMqtt">MQTT log</button>
+    <button class="tabbtn" id="tabGraphs">Graphs</button>
   </div>
   <div class="tabpanel active" id="panelMqtt">
     <div class="logbar">
@@ -159,8 +159,8 @@
       <label><input type="checkbox" id="fOut" checked> out</label>
       <label><input type="checkbox" id="fSys" checked> sys</label>
       <label><input type="checkbox" id="fErr" checked> err</label>
-      <button id="clearBtn" class="mini">очистить</button>
-      <button id="pauseBtn" class="mini">пауза</button>
+      <button id="clearBtn" class="mini">clear</button>
+      <button id="pauseBtn" class="mini">pause</button>
     </div>
     <div id="mqttLog"></div>
   </div>
@@ -174,7 +174,7 @@
 <script>
 'use strict';
 
-// ---------- Настройки ----------
+// ---------- Settings ----------
 const CFG_KEY = 'rover.console.cfg.v1';
 const $ = (id) => document.getElementById(id);
 function saveCfg(){ localStorage.setItem(CFG_KEY, JSON.stringify({ host:$('wsHost').value, user:$('mqttUser').value, pass:$('mqttPass').value, rid:$('roverId').value, yt:$('ytUrl').value })); }
@@ -220,40 +220,40 @@ function connectMqtt(){
   const opts = { clientId:'pc-'+Math.random().toString(16).slice(2,10), keepalive:20, reconnectPeriod:3000, connectTimeout:10000 };
   const user = $('mqttUser').value.trim(), pass = $('mqttPass').value.trim();
   if (user){ opts.username = user; opts.password = pass; }
-  log(`Соединение ${$('wsHost').value} ...`);
+  log(`Connecting ${$('wsHost').value} ...`);
   client = mqtt.connect($('wsHost').value, opts);
   client.on('connect', () => {
     pill('mqttPill', true);
-    log('MQTT подключён ✓', 'sys');
+    log('MQTT connected', 'sys');
     ['cmd','action','sensors','esptelemetry','status'].forEach((s) => client.subscribe(topic(s)));
     clearInterval(pingTimer);
     pingTimer = setInterval(() => publish('action', { type:'ping' }), 20000);
   });
-  client.on('close', () => { pill('mqttPill', false); log('MQTT отключён', 'err'); });
+  client.on('close', () => { pill('mqttPill', false); log('MQTT disconnected', 'err'); });
   client.on('error', (e) => { pill('mqttPill', false); log('MQTT: ' + (e && e.message || e), 'err'); });
   client.on('message', (t, p) => {
     const s = p.toString();
-    let m; try{ m = JSON.parse(s); }catch{ log(`⇣ ${t}  (не JSON) ${s}`, 'in'); return; }
+    let m; try{ m = JSON.parse(s); }catch{ log(`⇣ ${t}  (not JSON) ${s}`, 'in'); return; }
     log(`⇣ ${t}  ${s}`, 'in');
     onMessage(t.split('/').pop(), m);
   });
 }
 
-// ---------- Телеметрия: таблицы и графики ----------
+// ---------- Telemetry: tables and graphs ----------
 const MAX = 120;
 const hist = { t:[], bat:[], l:[], r:[], tilt:[], temp:[], pb:[], ptilt:[] };
 function push(a,v){ a.push(v); if(a.length>MAX)a.shift(); }
 
 function rows(pairs){ return pairs.map(([k,v,big])=>`<tr><td>${k}</td><td class="${big?'big':''}">${v}</td></tr>`).join(''); }
 
-// --- Графики (Chart.js) ---
+// --- Graphs (Chart.js) ---
 const GRAPH_DEFS = [
-  { id:'gBat',   title:'Батарея ровера, V',   color:'#6fdc8c', key:['t','bat'],   ymin:0, ymax:13 },
-  { id:'gPwm',   title:'Моторы L/R, %',       color:'#9fc2f0', key:['t','l'],   key2:'r', ymin:-110, ymax:110 },
-  { id:'gTilt',  title:'Наклон, °',           color:'#f0c060', key:['t','tilt'], ymin:-50, ymax:50 },
-  { id:'gTemp',  title:'Темп. MCU, °C',       color:'#f07a7a', key:['t','temp'], ymin:0, ymax:100 },
-  { id:'gPBat',  title:'Батарея телефона, %', color:'#7ab8f0', key:['t','pb'],   ymin:0, ymax:100 },
-  { id:'gPTilt', title:'Наклон телефона, °',  color:'#e0a0e0', key:['t','ptilt'], ymin:-50, ymax:50 },
+  { id:'gBat',   title:'Rover battery, V',     color:'#6fdc8c', key:['t','bat'],   ymin:0, ymax:13 },
+  { id:'gPwm',   title:'Motors L/R, %',        color:'#9fc2f0', key:['t','l'],   key2:'r', ymin:-110, ymax:110 },
+  { id:'gTilt',  title:'Tilt, °',              color:'#f0c060', key:['t','tilt'], ymin:-50, ymax:50 },
+  { id:'gTemp',  title:'MCU temp, °C',         color:'#f07a7a', key:['t','temp'], ymin:0, ymax:100 },
+  { id:'gPBat',  title:'Phone battery, %',     color:'#7ab8f0', key:['t','pb'],   ymin:0, ymax:100 },
+  { id:'gPTilt', title:'Phone tilt, °',        color:'#e0a0e0', key:['t','ptilt'], ymin:-50, ymax:50 },
 ];
 let charts = {};
 function makeGraph(def){
@@ -314,10 +314,10 @@ function onMessage(kind, m){
     $('phoneTable').innerHTML = rows([
       ['Phone battery', (m.battery_pct ?? '?') + ' %'],
       ['Phone tilt', (m.tilt_deg ?? 0).toFixed(1)+'°'],
-      ['GPS', g ? `${g.lat.toFixed(6)}, ${g.lon.toFixed(6)}` : 'нет', 1],
-      ['Точность', g ? g.acc_m+' м' : '-'],
-      ['Скорость', g ? g.speed_mps+' м/с' : '-'],
-      ['GPS время', g ? new Date(g.ts_ms).toLocaleTimeString() : '-'],
+      ['GPS', g ? `${g.lat.toFixed(6)}, ${g.lon.toFixed(6)}` : '--', 1],
+      ['Accuracy', g ? g.acc_m+' m' : '-'],
+      ['Speed', g ? g.speed_mps+' m/s' : '-'],
+      ['GPS time', g ? new Date(g.ts_ms).toLocaleTimeString() : '-'],
       ['Gyro', m.imu ? `(${m.imu.gx.toFixed(1)},${m.imu.gy.toFixed(1)},${m.imu.gz.toFixed(1)})` : '-'],
     ]);
     push(hist.pb, m.battery_pct ?? 0);
@@ -328,7 +328,7 @@ function onMessage(kind, m){
   }
 }
 
-// ---------- Джойстик ----------
+// ---------- Joystick ----------
 const wrap = $('joywrap'), knob = $('knob');
 let dragging = false;
 function updateJoystick(){

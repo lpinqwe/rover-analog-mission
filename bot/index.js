@@ -109,8 +109,8 @@ async function publisher(chatId, cmd) {
     await bot.sendMessage(chatId, `Moving ${cmd}...`);
     return;
   }
-  if (cmd === "стоп" || cmd === "stop") { pub(TOPIC("action"), { type: "stop" }); return replyOk(chatId, "Stop"); }
-  if (cmd === "свет" || cmd === "light") {
+  if (cmd === "stop") { pub(TOPIC("action"), { type: "stop" }); return replyOk(chatId, "Stop"); }
+  if (cmd === "light") {
     // toggle unknown — ask state. Simplest: on/off.
     const key = keyboard();
     await bot.sendMessage(chatId, "Choose:", {
@@ -122,13 +122,13 @@ async function publisher(chatId, cmd) {
     });
     return;
   }
-  if (cmd.startsWith("мина") || cmd.startsWith("mine")) {
+  if (cmd.startsWith("mine")) {
     const parts = cmd.split(/\s+/);
     const i = (parts.length > 1 ? parseInt(parts[1], 10) : 1) - 1;
     pub(TOPIC("action"), { type: "mine", channel: Math.max(0, i) });
     return replyOk(chatId, `Mine ${i + 1} triggered`);
   }
-  if (cmd === "пинг" || cmd === "ping") { pub(TOPIC("action"), { type: "ping" }); return replyOk(chatId, "Ping"); }
+  if (cmd === "ping") { pub(TOPIC("action"), { type: "ping" }); return replyOk(chatId, "Ping"); }
 }
 
 bot.on("callback_query", async (q) => {
