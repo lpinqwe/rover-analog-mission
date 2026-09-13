@@ -20,12 +20,12 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * BLE-central.
  *
- * ВАЖНО: все операции с BluetoothGatt и scanner сериализованы на одном
- * dedicated BLE thread. Callback-и Android могут приходить из разных
- * системных потоков, поэтому они только ставят работу в bleHandler.
+ * IMPORTANT: all BluetoothGatt and scanner operations are serialized on one
+ * dedicated BLE thread. Android callbacks may arrive from different system
+ * threads, so they only enqueue work on bleHandler.
  *
- * Команды тоже сериализованы. Для DRIVE pending DRIVE заменяется последней
- * командой, чтобы джойстик не создавал очередь устаревших команд.
+ * Commands are serialized too. For DRIVE, the pending DRIVE is replaced by the
+ * latest command, so the joystick doesn't create a queue of stale commands.
  */
 class BleClient(
     context: Context,
@@ -72,21 +72,21 @@ class BleClient(
 
     fun isBluetoothOn(): Boolean = adapter?.isEnabled == true
 
-    /* ---------------- Скан/рескан ---------------- */
+    /* ---------------- Scan/rescan ---------------- */
 
     private val rescanTask = object : Runnable {
         override fun run() {
             if (!active || connected || scanning || gatt != null) return
 
             if (!isBluetoothOn()) {
-                status("BLE: адаптер выключен, жду включения...")
+                status("BLE: adapter off, waiting...")
                 bleHandler.postDelayed(this, 3000)
                 return
             }
 
             scanAttempts++
             scanning = true
-            status("BLE: сканирую ROVER...")
+            status("BLE: scanning for ROVER...")
             adapter?.bluetoothLeScanner?.startScan(scanCallback)
 
             val timeout = if (scanAttempts <= 1) 15000L else 5000L
@@ -97,6 +97,7 @@ class BleClient(
     @SuppressLint("MissingPermission")
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            // Search by rover name OR by service UUID (Android doesn't always return the name).
             val name = result.device.name ?: ""
             val svcOk = result.scanRecord?.serviceUuids
                 ?.any { it.uuid == Protocol.Uuids.SERVICE } == true
@@ -114,7 +115,7 @@ class BleClient(
         override fun onScanFailed(errorCode: Int) {
             bleHandler.post {
                 scanning = false
-                status("BLE: ошибка сканирования ($errorCode)")
+                status("BLE: scan error ($errorCode)")
                 scheduleReconnectInternal(2000)
             }
         }
@@ -128,6 +129,7 @@ class BleClient(
         }
 
         if (active && !connected && gatt == null) {
+            // rover not found — retry with increasing backoff (up to 10s)
             val backoff = (scanAttempts * 1000L).coerceAtMost(10_000L)
             bleHandler.removeCallbacks(rescanTask)
             bleHandler.postDelayed(rescanTask, backoff)
@@ -143,19 +145,19 @@ class BleClient(
         }
     }
 
-    /* ---------------- Подключение ---------------- */
+    /* ---------------- Connect ---------------- */
 
     @SuppressLint("MissingPermission")
     private fun connectInternal(device: BluetoothDevice) {
         if (!active || gatt != null || connected) return
 
-        status("BLE: подключаюсь к ${device.name ?: device.address}...")
+        status("BLE: connecting to ${device.name ?: device.address}...")
         val g = runCatching {
             device.connectGatt(null, false, gattCallback)
         }.getOrNull()
 
         if (g == null) {
-            status("BLE: connectGatt вернул null, пробую снова...")
+            status("BLE: connectGatt returned null, retrying...")
             scheduleReconnectInternal(2000)
             return
         }
@@ -187,7 +189,7 @@ class BleClient(
                         pendingDrive = null
                         writeBusy = false
 
-                        status("BLE: соединение установлено, ищу сервисы...")
+                        status("BLE: connected, discovering services...")
                         val ok = runCatching { g.discoverServices() }.getOrDefault(false)
                         if (!ok) {
                             onError?.invoke("BLE discoverServices() failed")
@@ -212,7 +214,7 @@ class BleClient(
                 if (gatt !== g) return@post
 
                 if (statusCode != BluetoothGatt.GATT_SUCCESS) {
-                    status("BLE: не удалось обнаружить сервисы (code $statusCode)")
+                    status("BLE: failed to discover services (code $statusCode)")
                     onError?.invoke("BLE services discovery failed (code $statusCode)")
                     closeGattInternal(g)
                     scheduleReconnectInternal(1000)
@@ -224,7 +226,7 @@ class BleClient(
                 val telem = svc?.getCharacteristic(Protocol.Uuids.TELEMETRY)
 
                 if (svc == null || cmd == null || telem == null) {
-                    status("BLE: сервис/характеристики ровера не найдены")
+                    status("BLE: rover service/characteristics not found")
                     onError?.invoke("BLE rover service/characteristics missing")
                     closeGattInternal(g)
                     scheduleReconnectInternal(1000)
@@ -274,7 +276,7 @@ class BleClient(
                     onError?.invoke("BLE notification descriptor write failed (status $statusCode)")
                 }
                 if (gatt === g && connected) {
-                    status("BLE: подключён, телеметрия активна")
+                    status("BLE: connected, telemetry active")
                 }
             }
         }
@@ -288,7 +290,7 @@ class BleClient(
         val desc = c.getDescriptor(UuidUtils.CCCD)
         if (desc == null) {
             onError?.invoke("BLE: CCCD descriptor not found")
-            status("BLE: не найден CCCD для телеметрии")
+            status("BLE: CCCD for telemetry not found")
             return
         }
 
@@ -323,12 +325,12 @@ class BleClient(
         if (gatt === g) gatt = null
     }
 
-    /* ---------------- Отправка команд ---------------- */
+    /* ---------------- Send commands ---------------- */
 
     /**
-     * Безопасная очередь GATT.
-     * DRIVE имеет latest-value семантику: если BLE занят, старая DRIVE
-     * заменяется новой. STOP/ACTION сохраняются в обычной очереди.
+     * Safe GATT queue.
+     * DRIVE has latest-value semantics: if BLE is busy, the old DRIVE is
+     * replaced by the new one. STOP/ACTION go into a regular queue.
      */
     fun writeCommand(data: ByteArray): Boolean {
         val copy = data.clone()
@@ -369,7 +371,7 @@ class BleClient(
         if (!ok) {
             writeBusy = false
             onError?.invoke("BLE writeCharacteristic returned false")
-            // Не теряем последнюю DRIVE.
+            // Don't lose the latest DRIVE.
             if ((next[2].toInt() and 0xFF) == Protocol.CMD_DRIVE) {
                 pendingDrive = next
             } else {
@@ -379,7 +381,7 @@ class BleClient(
         }
     }
 
-    /* ---------------- Очистка ---------------- */
+    /* ---------------- Cleanup ---------------- */
 
     @SuppressLint("MissingPermission")
     fun close() {

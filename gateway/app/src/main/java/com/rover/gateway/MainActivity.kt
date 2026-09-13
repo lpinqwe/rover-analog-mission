@@ -31,7 +31,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Три вкладки: Настройки | Управление (прямое BLE-управление джойстиком) | Лог.
+ * Three tabs: Settings | Control (direct BLE joystick) | Log.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -72,7 +72,7 @@ class MainActivity : AppCompatActivity() {
     private var lastSpeed = 0
     private var lastSteer = 0
 
-    // Вачдог: если главный поток «завис», шлёт в ТГ стек всех потоков.
+    // Watchdog: if the main thread "stalls", send a stack dump to TG.
     private val mainTick = java.util.concurrent.atomic.AtomicLong()
     @Volatile private var watchdogStop = false
     private var lastWdReport = 0L
@@ -82,7 +82,7 @@ class MainActivity : AppCompatActivity() {
         add(Manifest.permission.ACCESS_COARSE_LOCATION)
         add(Manifest.permission.BLUETOOTH_SCAN)
         add(Manifest.permission.BLUETOOTH_CONNECT)
-        if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS) // для FG-уведомления
+        if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS) // for FG notifications
     }.toTypedArray()
 
     private val permLauncher = registerForActivityResult(
@@ -94,8 +94,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("cfg", MODE_PRIVATE)
-        // Экран не гаснет, пока открыта панель управления (защита от «отвалился»
-        // из-за сна при неподвижной сценке).
+        // Screen stays on while the control panel is open (prevents
+        // disconnection from sleep during a static scene).
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val dp = dp()
 
@@ -103,28 +103,28 @@ class MainActivity : AppCompatActivity() {
             text = t; setPadding(0, 4 * dp, 0, 0)
         }
 
-        /* ---------- Поля настроек ---------- */
+                /* ---------- Settings fields ---------- */
         etBroker = EditText(this).apply { hint = "MQTT broker (ssl://host:8883)" }
         etUser = EditText(this).apply { hint = "MQTT user" }
         etPass = EditText(this).apply { hint = "MQTT pass" }
-        etPeriod = EditText(this).apply { hint = "Период телеметрии (мс)" }
-        etRoverId = EditText(this).apply { hint = "ID ровера (rover/<id>/...)" }
+        etPeriod = EditText(this).apply { hint = "Telemetry period (ms)" }
+        etRoverId = EditText(this).apply { hint = "Rover ID (rover/<id>/...)" }
         etTgToken = EditText(this).apply { hint = "TG bot token" }
         etTgChat = EditText(this).apply { hint = "TG chat id" }
-        btnStart = Button(this).apply { text = "▶ Запустить" }
-        btnStop = Button(this).apply { text = "■ Стоп" }
-        tvStatus = TextView(this).apply { text = "Не запущен" }
+        btnStart = Button(this).apply { text = "▶ Start" }
+        btnStop = Button(this).apply { text = "■ Stop" }
+        tvStatus = TextView(this).apply { text = "Not running" }
 
         settingsPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         settingsPanel.addView(label("MQTT broker"))
         settingsPanel.addView(etBroker)
-        settingsPanel.addView(label("Логин"))
+        settingsPanel.addView(label("Login"))
         settingsPanel.addView(etUser)
-        settingsPanel.addView(label("Пароль"))
+        settingsPanel.addView(label("Password"))
         settingsPanel.addView(etPass)
-        settingsPanel.addView(label("Период телеметрии (мс)"))
+        settingsPanel.addView(label("Telemetry period (ms)"))
         settingsPanel.addView(etPeriod)
-        settingsPanel.addView(label("ID ровера"))
+        settingsPanel.addView(label("Rover ID"))
         settingsPanel.addView(etRoverId)
         settingsPanel.addView(label("TG bot token"))
         settingsPanel.addView(etTgToken)
@@ -136,19 +136,19 @@ class MainActivity : AppCompatActivity() {
         })
         settingsPanel.addView(tvStatus)
 
-        /* ---------- Вкладка Управление ---------- */
+        /* ---------- Control tab ---------- */
         tvBle = TextView(this).apply {
-            text = "BLE: не подключён"
+            text = "BLE: not connected"
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
         }
         tvLive = TextView(this).apply {
-            text = "бат: -- V    L: --%    R: --%    TEMP: --°C    TILT: --°"
+            text = "bat: -- V    L: --%    R: --%    TEMP: --°C    TILT: --°"
             textSize = 13f
             typeface = Typeface.MONOSPACE
         }
 
-        // Джойстик: плошка + круглая ручка
+        // Joystick: pad + circular knob
         joyPad = FrameLayout(this).apply {
             setBackgroundColor(0xFFE8E8E8.toInt())
             layoutParams = LinearLayout.LayoutParams(
@@ -164,16 +164,16 @@ class MainActivity : AppCompatActivity() {
         joyPad.setOnTouchListener { _, e -> handleJoy(e) }
 
         val btnStopBig = Button(this).apply {
-            text = "■ СТОП"
+            text = "■ STOP"
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.RED)
             textSize = 18f
         }
-        val btnLight = Button(this).apply { text = "Фонарь: OFF" }
-        val btnPing = Button(this).apply { text = "Пинг" }
+        val btnLight = Button(this).apply { text = "Light 💡" }
+        val btnPing = Button(this).apply { text = "Ping" }
         btnLight.setOnClickListener {
             lightOn = !lightOn
-            btnLight.text = if (lightOn) "Фонарь: ON" else "Фонарь: OFF"
+            btnLight.text = if (lightOn) "Light: ON" else "Light: OFF"
             sendBle(GatewayService.EXTRA_CMD to "light", GatewayService.EXTRA_ON to lightOn)
         }
         btnPing.setOnClickListener { sendBle(GatewayService.EXTRA_CMD to "ping") }
@@ -182,7 +182,7 @@ class MainActivity : AppCompatActivity() {
         controlPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         controlPanel.addView(tvBle)
         controlPanel.addView(tvLive)
-        controlPanel.addView(label("Тяни ручку: вверх = вперёд, вбок = поворот"))
+        controlPanel.addView(label("Pull stick: up = forward, sideways = turn"))
         controlPanel.addView(joyPad)
 
         // Панель направлений: дискретные кнопки (держать для движения).
@@ -236,22 +236,22 @@ class MainActivity : AppCompatActivity() {
             addView(btnLight, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
             addView(btnPing, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
         })
-        controlPanel.addView(label("Мины (импульс 50мс)"))
+        controlPanel.addView(label("Mines (50ms pulse)"))
         controlPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             for (i in 0 until 3) {
-                val b = Button(this@MainActivity).apply { text = "Мина ${i + 1}" }
+                val b = Button(this@MainActivity).apply { text = "Mine ${i + 1}" }
                 b.setOnClickListener { sendBle(GatewayService.EXTRA_CMD to "mine", GatewayService.EXTRA_CHANNEL to i) }
                 addView(b, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
             }
         })
         controlPanel.addView(TextView(this).apply {
-            text = "Для управления телефон-ровер (BLE) достаточно «Запустить» и подождать подключения."
+            text = "To control the rover (BLE) just tap \"Start\" and wait for connection."
             textSize = 12f
             setPadding(0, 8 * dp, 0, 0)
         })
 
-        /* ---------- Вкладка Лог ---------- */
+        /* ---------- Log tab ---------- */
         tvLog = TextView(this).apply {
             textSize = 11f
             setTextIsSelectable(true)
@@ -267,10 +267,10 @@ class MainActivity : AppCompatActivity() {
             addView(scrollLog, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         }
 
-        /* ---------- Вкладки-переключатели ---------- */
-        btnTabSettings = tabButton("Настройки")
-        btnTabControl = tabButton("Управление")
-        btnTabLog = tabButton("Лог")
+        /* ---------- Tab buttons ---------- */
+        btnTabSettings = tabButton("Settings")
+        btnTabControl = tabButton("Control")
+        btnTabLog = tabButton("Log")
         btnTabSettings.setOnClickListener { showTab(settingsPanel) }
         btnTabControl.setOnClickListener { showTab(controlPanel) }
         btnTabLog.setOnClickListener { showTab(logPanel) }
@@ -527,9 +527,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadPrefs() {
-        etBroker.setText(prefs.getString(GatewayService.KEY_BROKER, "ssl://ed44fbaa0a7a41afaf940381fb18cd2a.s1.eu.hivemq.cloud:8883"))
-        etUser.setText(prefs.getString(GatewayService.KEY_USER, "roverCred"))
-        etPass.setText(prefs.getString(GatewayService.KEY_PASS, "mqttHIVE!2#"))
+        etBroker.setText(prefs.getString(GatewayService.KEY_BROKER, ""))
+        etUser.setText(prefs.getString(GatewayService.KEY_USER, ""))
+        etPass.setText(prefs.getString(GatewayService.KEY_PASS, ""))
         etPeriod.setText(prefs.getString(GatewayService.KEY_SENSOR_PERIOD, "2000"))
         etRoverId.setText(prefs.getString(GatewayService.KEY_ROVER_ID, "demo"))
         etTgToken.setText(prefs.getString(TgNotify.KEY_TG_TOKEN, TgNotify.DEFAULT_TOKEN))

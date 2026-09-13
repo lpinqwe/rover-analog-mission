@@ -1,42 +1,42 @@
-# Rover — управление по интернету (ПК/ТГ ↔ MQTT ↔ Телефон ↔ BLE ↔ ESP32-S3)
+# Rover — Internet Control (PC/TG ↔ MQTT ↔ Phone ↔ BLE ↔ ESP32-S3)
 
 ```
-ПК (desktop/index.html)  ─┐
-ТГ-бот (bot/)            ─┼─► MQTT (облако, бесплатно) ─► Телефон-шлюз ─► BLE ─► ESP32-S3 ─► моторы/мины/ноги/свет
-Телефон-телеметрия (GPS/гиро/батарея) ───────────────────────────────────────────────►
-Камера телефона ─► YouTube-трансляция ─► ПК (смотрит)
+PC console (desktop/index.html) ─┐
+TG bot (bot/)                     ├──► MQTT (cloud, free) ─► Phone gateway ─► BLE ─► ESP32-S3 ─► motors/mines/legs/light
+Phone telemetry (GPS/gyro/battery) ──────────────────────────────────────────►
+Phone camera ─► YouTube stream ─► PC (watching)
 ```
 
-Ровер работает **или с ПК-консоли, или через ТГ-бота** — параллельно можно оба.
+The rover works **either from a PC console or via the TG bot** — both can run simultaneously.
 
-## Состав
+## Contents
 
-| Папка | Что это |
+| Folder | What it is |
 |---|---|
-| `firmware/` | Прошивка ESP32-S3 (Arduino). BLE, моторы, свет, мины, ноги, watchdog, защита от падения |
-| `gateway/` | Android-приложение «телефон-шлюз»: MQTT↔BLE, телеметрия датчиков телефона |
-| `desktop/index.html` | ПК-консоль: открывается в браузере, джойстик + видео (YouTube) + телеметрия |
-| `bot/` | ТГ-бот-пульт (Node.js): стрелки, стоп, свет, мины, статус |
+| `firmware/` | ESP32-S3 firmware (Arduino). BLE, motors, light, mines, legs, watchdog, tilt protection |
+| `gateway/` | Android "phone gateway" app: MQTT↔BLE, phone sensor telemetry |
+| `desktop/index.html` | PC console: browser-based joystick + video (YouTube) + telemetry |
+| `bot/` | TG bot controller (Node.js): arrows, stop, light, mines, status |
 
-## Кратко: как запустить
+## Quick start
 
-1. **Прошивка**: `firmware/rover/` — это папка Arduino-скетча (открывать именно `firmware/rover/rover.ino`). Плата **ESP32-S3-Nano** (пакет esp32), библиотека BLE встроена в ядро, ставить не нужно.
-2. **MQTT-брокер**: дефолт — твой HiveMQ Cloud кластер `ed44fbaa0a7a41afaf940381fb18cd2a.s1.eu.hivemq.cloud`
-   (телефон: `ssl://…:8883`, ПК/бот: `wss://…:8884/mqtt`). Логин/пароль кластера впиши в gateway, консоль и бот.
-3. **Gateway**: установить APK на телефон, дать разрешения (GPS, Bluetooth), указать брокер и ID ровера, «Запустить». Телефон ищет `ROVER-S3` по BLE и подключается.
-4. **ПК**: открыть `desktop/index.html` в браузере, выбрать брокер (`wss://...`) и ID ровера, вставить URL YouTube-трансляции. Двигаем джойстиком.
-5. **ТГ**: `BOT_TOKEN=... npm start` в `bot/`.
+1. **Firmware**: `firmware/rover/` — this is an Arduino sketch (open `firmware/rover/rover.ino`). Board: **ESP32-S3-Nano** (ESP32 board package), BLE is built into the core — no extra library needed.
+2. **MQTT broker**: set your own broker address in gateway/console/bot settings
+    (phone: `ssl://...:8883`, PC/bot: `wss://...:8884/mqtt`). Enter your broker credentials in gateway, console, and bot.
+3. **Gateway**: install the APK on your phone, grant permissions (GPS, Bluetooth), enter broker and rover ID, tap "Start". The phone scans for `ROVER-S3` over BLE and connects.
+4. **PC**: open `desktop/index.html` in a browser, select broker (`wss://...`) and rover ID, paste YouTube stream URL. Move the joystick.
+5. **TG**: `BOT_TOKEN=... npm start` in `bot/`.
 
-## Протокол (сигнатура пакетов)
+## Protocol (packet signature)
 
-Команды и телеметрия — бинарный формат (см. `firmware/src/proto.h` и его зеркало `Protocol.kt`).
+Commands and telemetry are binary format (see `firmware/src/proto.h` and its mirror `Protocol.kt`).
 
-### Команда (ПК/ТГ → ESP32), по BLE
+### Command (PC/TG → ESP32), over BLE
 `[0x52][seq][cmd][payload...][xor-all-prev]`
 
 | cmd | payload |
 |---|---|
-| `0x01 DRIVE` | `int8 speed(-100..100), int8 steer(-100..100)` (дифф. руление) |
+| `0x01 DRIVE` | `int8 speed(-100..100), int8 steer(-100..100)` (differential drive) |
 | `0x02 STOP` | — |
 | `0x03 LIGHT` | `uint8 0/1` |
 | `0x04 MINE` | `uint8 channel` |
@@ -44,44 +44,43 @@
 | `0x06 PING` | — |
 | `0x07 RESET` | — |
 
-Последовательность из 10 байт (см. ниже). Физически по BLE — **10 байт**:
-`[0x54][flags][bat*10][Lpwm][Rpwm][mcu_temp][ack_seq][ack_status][tilt*10][leg_bits]`.
+Telemetry frame (10 bytes): `[0x54][flags][bat*10][Lpwm][Rpwm][mcu_temp][ack_seq][ack_status][tilt*10][leg_bits]`.
 
-> Видео — не WebRTC (как обсуждали): камера телефона стримит в **YouTube Live** (есть приложение YouTube/StreamYard), ПК открывает embed. Задержка 3–10 с — ок для «глазами», но не для джойстика «на чувствительность».
+> Video is not WebRTC (as discussed): the phone camera streams to **YouTube Live** (use YouTube/StreamYard app), PC embeds it. Latency 3–10 s — fine for "eyes", not for precision joystick.
 
-## MQTT-топики
+## MQTT topics
 
-Префикс: `rover/<rover_id>/` (по умолчанию `demo`).
+Prefix: `rover/<rover_id>/` (default `demo`).
 
-| Топик | Направление | Формат |
+| Topic | Direction | Format |
 |---|---|---|
-| `cmd` | ПК→телефон | `{"speed":-1..1,"steer":-1..1}` — непрерывный джойстик |
-| `action` | ПК/ТГ→телефон | `{"type":"stop"}` \| `{"type":"light","on":bool}` \| `{"type":"mine","channel":n}` \| `{"type":"leg","channel":n,"pos":-1..1}` \| `{"type":"ping"}` |
-| `esptelemetry` | телефон→ПК | батарея, ШИМ L/R, наклон, temp MCU, ack |
-| `sensors` | телефон→ПК | GPS, IMU, батарея телефона (см. `SensorHub`) |
-| `status` | телефон→ПК | онлайн/оффлайн BLE и MQTT |
+| `cmd` | PC→phone | `{"speed":-1..1,"steer":-1..1}` — continuous joystick |
+| `action` | PC/TG→phone | `{"type":"stop"}` \| `{"type":"light","on":bool}` \| `{"type":"mine","channel":n}` \| `{"type":"leg","channel":n,"pos":-1..1}` \| `{"type":"ping"}` |
+| `esptelemetry` | phone→PC | battery, L/R PWM, tilt, MCU temp, ack |
+| `sensors` | phone→PC | GPS, IMU, phone battery (see `SensorHub`) |
+| `status` | phone→PC | BLE and MQTT online/offline |
 
-## Подключение (ESP32-S3-Nano + Pololu MD12A)
+## Hardware: ESP32-S3-Nano + L298N
 
-`config.h` → `MOTOR_DRIVER_TYPE 2` (MD12A, по умолчанию). MD12A — двойной H-мост MC33926, управление **PWM+DIR** на каждый мотор.
+`config.h` → `MOTOR_DRIVER_TYPE 1` (L298N, IN1/IN2 + PWM on EN).
 
-| ESP32-S3-Nano | MD12A | Назначение |
+| ESP32-S3-Nano | L298N | Purpose |
 |---|---|---|
-| GPIO4 | M1PWM | Левый мотор — ШИМ (скорость) |
-| GPIO5 | M1DIR | Левый мотор — направление |
-| GPIO6 | M2PWM | Правый мотор — ШИМ (скорость) |
-| GPIO7 | M2DIR | Правый мотор — направление |
-| VIN/5V | VIN | Питание драйвера (от батареи 5–28В) |
-| GND | GND | Общий минус (обязательно с батареей!) |
+| GPIO4 | IN1 | Left motor direction 1 |
+| GPIO5 | IN2 | Left motor direction 2 |
+| GPIO6 | ENA | Left motor PWM (speed) |
+| GPIO7 | IN1 | Right motor direction 1 |
+| GPIO8 | IN2 | Right motor direction 2 |
+| GPIO9 | ENB | Right motor PWM (speed) |
+| 5V | +12V/+5V | Motor power supply |
+| GND | GND | Common ground (must connect to battery!) |
 
-Моторы → ВЫХОДЫ M1A/M1B и M2A/M2B. Если колесо крутится назад — поставь `MD12A_INVERT_L=1` (или `MD12A_INVERT_R=1`) в `config.h`.
+Other GPIOs: battery divider → `GPIO3`, light `GPIO10`, mines `GPIO11/12/13`, legs (servo) `GPIO14/15`. All configurable in `config.h`.
 
-Остальные GPIO: батарейный делитель → `GPIO3`, фонарик `GPIO10`, мины `GPIO11/12/13`, ноги (серво) `GPIO14/15`. Всё меняется в `config.h`.
+## Notes
 
-## Замечания
-
-- **Драйвер моторов**: `MOTOR_DRIVER_TYPE` — `2` = Pololu MD12A (PWM+DIR), `1` = L298N/TB6612 (IN1/IN2/EN), `0` = заглушка (только лог).
-- **Ноги и гиро** — заготовки: подключи `ESP32Servo` и MPU/лист, раскомментируй в `config.h` (`HAS_TILT_SENSOR`, `LEG_*`).
-- **Watchdog**: если BLE-соединение с ESP32 пишет телеметрию, а команды не приходят >300 мс — моторы становятся, робот не укатится.
-- **Защита от падения**: `TILT_LIMIT_DEG=45°` режет моторы; сейчас без гиро — просто флаг (включить датчик).
-- **Автоподключение**: телефон сам сканит `ROVER-S3`; ESP32 сам переходит в advertise после разрыва.
+- **Motor driver**: `MOTOR_DRIVER_TYPE` — `1` = L298N (IN1/IN2/PWM), `2` = MD12A (PWM+DIR), `0` = stub (log only).
+- **Legs and tilt sensor** — stubs: connect `ESP32Servo` and MPU/lis3, enable in `config.h` (`HAS_TILT_SENSOR`, `LEG_*`).
+- **Watchdog**: if BLE telemetry is flowing but no commands arrive for >1 s — motors stop, robot doesn't roll away.
+- **Tilt protection**: `TILT_LIMIT_DEG=45°` cuts motors; currently no sensor — flag only (enable sensor).
+- **Auto-reconnect**: the phone scans for `ROVER-S3`; the ESP32 re-advertises after disconnect.

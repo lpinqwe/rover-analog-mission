@@ -7,18 +7,18 @@ import javax.net.ssl.HttpsURLConnection
 import kotlin.concurrent.thread
 
 /**
- * Отправляет статусы/ошибки прямо в Telegram-чат (в тот же, где ловишь APK).
- * Никаких зависимостей — голый HttpsURLConnection.
+ * Sends statuses/errors directly to a Telegram chat (the same one where you receive APKs).
+ * No dependencies — plain HttpsURLConnection.
  */
 object TgNotify {
 
     const val KEY_TG_TOKEN = "tg_token"
     const val KEY_TG_CHAT = "tg_chat"
-    const val DEFAULT_TOKEN = "8816018038:AAGvNHgaDhNdWeJnJbk_Y_CvGWdd4EyTCQw"
-    const val DEFAULT_CHAT = "663450648"
+    const val DEFAULT_TOKEN = ""
+    const val DEFAULT_CHAT = ""
 
-    // Жёсткий глобальный лимит: больше 6 сообщений в минуту в ТГ не уйдёт —
-    // ни краши, ни вачдог не смогут зафлудить чат.
+    // Hard global limit: no more than 6 messages per minute in TG —
+    // neither crashes nor the watchdog can flood the chat.
     private val lock = Any()
     private var windowStart = 0L
     private var count = 0
@@ -40,7 +40,7 @@ object TgNotify {
                         true
                     }
                 }
-                if (!allowed) return@thread  // молча сбрасываем лишнее
+                if (!allowed) return@thread  // silently drop excess
                 val url = URL("https://api.telegram.org/bot$token/sendMessage")
                 val conn = url.openConnection() as HttpsURLConnection
                 conn.requestMethod = "POST"
@@ -55,7 +55,7 @@ object TgNotify {
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 conn.inputStream.close()
             } catch (_: Throwable) {
-                // репортёр не должен ронять приложение
+                // reporter must not crash the app
             }
         }
     }

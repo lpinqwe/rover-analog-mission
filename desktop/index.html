@@ -94,42 +94,42 @@
         <div class="joylab" id="joyval">speed 0.00 | steer 0.00</div>
       </div>
       <div class="controls panel">
-        <h2>Управление</h2>
-        <div class="grid">
-          <button id="lightBtn">Лайт</button>
-          <button id="stopBtn" class="danger">СТОП</button>
-          <button id="mine0">Мина 1</button>
-          <button id="mine1">Мина 2</button>
-          <button id="mine2">Мина 3</button>
-          <button id="pingBtn">Пинг</button>
-          <button id="videoFull" class="wide">Видео ⛶</button>
-        </div>
+        <h2>Control</h2>
+          <div class="grid">
+            <button id="lightBtn">Light</button>
+            <button id="stopBtn" class="danger">STOP</button>
+            <button id="mine0">Mine 1</button>
+            <button id="mine1">Mine 2</button>
+            <button id="mine2">Mine 3</button>
+            <button id="pingBtn">Ping</button>
+            <button id="videoFull" class="wide">Video ⛶</button>
+          </div>
       </div>
     </div>
   </div>
 
   <div class="right-col">
     <div class="panel">
-      <h2>Подключение</h2>
+      <h2>Connection</h2>
       <div class="row">
         <select id="wsHost" class="grow">
-          <option value="wss://ed44fbaa0a7a41afaf940381fb18cd2a.s1.eu.hivemq.cloud:8884/mqtt">HiveMQ Cloud (этот ровер)</option>
+          <option value="">Select broker...</option>
           <option value="wss://broker.hivemq.com:8884/mqtt">broker.hivemq.com</option>
           <option value="wss://broker.emqx.io:8084/mqtt">broker.emqx.io</option>
           <option value="wss://test.mosquitto.org:8081">test.mosquitto.org</option>
         </select>
       </div>
       <div class="row" style="margin-top:8px;">
-        <input id="mqttUser" class="grow" value="roverCred" placeholder="MQTT user" />
-        <input id="mqttPass" class="grow" value="mqttHIVE!2#" placeholder="MQTT pass" />
+        <input id="mqttUser" class="grow" value="" placeholder="MQTT user" />
+        <input id="mqttPass" class="grow" value="" placeholder="MQTT pass" />
       </div>
       <div class="row" style="margin-top:8px;">
         <input id="roverId" value="demo" class="grow" placeholder="rover id" />
-        <button id="connectBtn" class="mini">Подкл.</button>
+        <button id="connectBtn" class="mini">Connect</button>
         <button id="disconnectBtn" class="mini">X</button>
       </div>
       <div class="row" style="margin-top:8px;">
-        <input id="ytUrl" class="grow" placeholder="URL YouTube-трансляции (Live)" />
+        <input id="ytUrl" class="grow" placeholder="YouTube Live stream URL" />
         <button id="ytBtn" class="mini">OK</button>
       </div>
     </div>
@@ -184,8 +184,6 @@ function loadCfg(){ try{ const c=JSON.parse(localStorage.getItem(CFG_KEY)); if(!
 const rid = () => $('roverId').value.trim() || 'demo';
 const topic = (n) => `rover/${rid()}/${n}`;
 
-// ---------- Лог ----------
-let paused = false;
 function log(msg, cls){
   if (paused && cls !== 'err') return;
   const e = $('mqttLog');
@@ -295,12 +293,12 @@ function onMessage(kind, m){
     pill('espPill', true);
     $('espStamp').textContent = new Date().toLocaleTimeString();
     $('espTable').innerHTML = rows([
-      ['Батарея', (m.battery??0).toFixed(1)+' V', 1],
-      ['Мотор L / R', `${m.left_pwm}% / ${m.right_pwm}%`],
-      ['Наклон', (m.esp_tilt_deg??0).toFixed(1)+'°'],
-      ['Tilt (защ.)', m.tilted ? 'ДА':'нет'],
-      ['Watchdog', m.watchdog_stop ? 'ДА':'нет'],
-      ['Темп. MCU', (m.mc_temp_c??0)+'°C'],
+      ['Battery', (m.battery??0).toFixed(1)+' V', 1],
+      ['Motor L / R', `${m.left_pwm}% / ${m.right_pwm}%`],
+      ['Tilt', (m.esp_tilt_deg??0).toFixed(1)+'°'],
+      ['Tilt (prot.)', m.tilted ? 'YES':'NO'],
+      ['Watchdog', m.watchdog_stop ? 'YES':'NO'],
+      ['MCU temp', (m.mc_temp_c??0)+'°C'],
       ['ACK seq/st', `${m.ack_seq} / ${m.ack_status}`],
     ]);
     push(hist.t, new Date().toLocaleTimeString());
@@ -314,8 +312,8 @@ function onMessage(kind, m){
     $('phoneStamp').textContent = new Date().toLocaleTimeString();
     const g = m.gps;
     $('phoneTable').innerHTML = rows([
-      ['Батарея тел.', (m.battery_pct ?? '?') + ' %'],
-      ['Наклон тел.', (m.tilt_deg ?? 0).toFixed(1)+'°'],
+      ['Phone battery', (m.battery_pct ?? '?') + ' %'],
+      ['Phone tilt', (m.tilt_deg ?? 0).toFixed(1)+'°'],
       ['GPS', g ? `${g.lat.toFixed(6)}, ${g.lon.toFixed(6)}` : 'нет', 1],
       ['Точность', g ? g.acc_m+' м' : '-'],
       ['Скорость', g ? g.speed_mps+' м/с' : '-'],
@@ -359,7 +357,7 @@ function moveKnob(e){
   updateJoystick();
 }
 
-// ---------- Клавиатура ----------
+// ---------- Keyboard ----------
 const KS = { up:false, down:false, left:false, right:false };
 let keyTimer = null;
 function driveFromKeys(){
@@ -378,26 +376,26 @@ window.addEventListener('keyup', (e)=>{
   KS[k]=false; driveFromKeys();
 });
 
-// ---------- Кнопки ----------
+// ---------- Buttons ----------
 $('lightBtn').onclick = function(){ const on=!this.classList.contains('on'); this.classList.toggle('on',on); publish('action', { type:'light', on }); };
 $('stopBtn').onclick = () => publish('action', { type:'stop' });
 [0,1,2].forEach((i)=> $('mine'+i).onclick = () => publish('action', { type:'mine', channel:i }));
 $('pingBtn').onclick = () => publish('action', { type:'ping' });
 
-// ---------- Видео ----------
+// ---------- Video ----------
 function applyYoutube(url){
   if(!url) return;
   let id = url.match(/[?&]v=([\w-]{6,15})/);
   if(!id) id = url.match(/youtu\.be\/([\w-]{6,15})/);
   if(!id) id = url.match(/^([\w-]{6,15})$/);
-  if(!id){ log('Не разобрал YouTube URL','err'); return; }
+  if(!id){ log('Failed to parse YouTube URL','err'); return; }
   $('video').src = `https://www.youtube.com/embed/${id[1]}?autoplay=1&mute=1`;
-  log('Видео: '+id[1]);
+  log('Video: '+id[1]);
 }
 $('ytBtn').onclick = () => { saveCfg(); applyYoutube($('ytUrl').value.trim()); };
 $('videoFull').onclick = () => { const v=$('video'); if(v.requestFullscreen) v.requestFullscreen(); };
 
-// ---------- Вкладки ----------
+// ---------- Tabs ----------
 const tab = (btnId, panelId) => {
   $(btnId).onclick = () => {
     [$('tabMqtt'), $('tabGraphs')].forEach(b=>b.classList.remove('active'));
@@ -410,13 +408,13 @@ const tab = (btnId, panelId) => {
 tab('tabMqtt','panelMqtt');
 tab('tabGraphs','panelGraphs');
 
-// ---------- Лог-кнопки ----------
+// ---------- Log buttons ----------
 $('clearBtn').onclick = () => { $('mqttLog').innerHTML=''; };
-$('pauseBtn').onclick = function(){ paused=!paused; this.textContent = paused ? '▶ возобновить' : 'пауза'; };
+$('pauseBtn').onclick = function(){ paused=!paused; this.textContent = paused ? '▶ resume' : 'pause'; };
 $('connectBtn').onclick = connectMqtt;
-$('disconnectBtn').onclick = () => { if(client) client.end(true); clearInterval(pingTimer); ['mqttPill','blePill','espPill'].forEach(p=>pill(p,false)); log('Отключено'); };
+$('disconnectBtn').onclick = () => { if(client) client.end(true); clearInterval(pingTimer); ['mqttPill','blePill','espPill'].forEach(p=>pill(p,false)); log('Disconnected'); };
 
-// ---------- Инициализация ----------
+// ---------- Init ----------
 GRAPH_DEFS.forEach(makeGraph);
 loadCfg();
 connectMqtt();

@@ -15,8 +15,8 @@ import org.json.JSONObject
 import kotlin.concurrent.thread
 
 /**
- * Фоновый мост: MQTT (Интернет) <-> BLE (ESP32-S3).
- * Плюс публикует телеметрию датчиков телефона (GPS/гиро/батарея).
+ * Background bridge: MQTT (Internet) <-> BLE (ESP32-S3).
+ * Also publishes phone sensor telemetry (GPS/gyro/battery).
  */
 class GatewayService : Service() {
 
@@ -29,12 +29,12 @@ class GatewayService : Service() {
     private var bridgeStarted = false
     private var wakeLock: android.os.PowerManager.WakeLock? = null
 
-    // Асинхронные публикации в MQTT, чтобы main-thread (BLE-callback) не касался сети.
+// Async MQTT publishes so the main thread (BLE callback) never touches the network.
     private val io = java.util.concurrent.Executors.newFixedThreadPool(2) { r ->
         Thread(r, "rover-io").apply { isDaemon = true }
     }
 
-    // Периодическая телеметрия не должна занимать очередь команд.
+    // Periodic telemetry must not occupy the command queue.
     private val sensorScheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "rover-sensors").apply { isDaemon = true }
     }
@@ -70,12 +70,12 @@ class GatewayService : Service() {
         const val KEY_PASS = "pass"
         const val KEY_SENSOR_PERIOD = "sensor_period"
 
-        const val DEFAULT_BROKER = "ssl://ed44fbaa0a7a41afaf940381fb18cd2a.s1.eu.hivemq.cloud:8883"
+        const val DEFAULT_BROKER = ""
 
         private const val CHANNEL_ID = "rover_bridge"
         private const val NOTIF_ID = 42
 
-        /** Запущен ли мост (нужно для прямой панели управления). */
+        /** Whether the bridge is running (needed for the direct control panel). */
         @Volatile var running = false
         @Volatile var bleConnected = false
         @Volatile var lastTelemetry: Protocol.Telemetry? = null
@@ -84,7 +84,7 @@ class GatewayService : Service() {
         private var originalUncaughtHandler: Thread.UncaughtExceptionHandler? = null
         private var lastCrashAt = 0L
 
-        /** Лог для отладочной консоли в MainActivity. Список (timestamp, message). */
+        /** Log for the debug console in MainActivity. List of (timestamp, message). */
         val logBuffer = mutableListOf<Pair<Long, String>>()
 
         fun appendLog(tag: String, msg: String) {
@@ -96,7 +96,7 @@ class GatewayService : Service() {
     }
 
     private fun statusG(text: String) {
-        // Дедуп: одинаковый статус (напр. «подключаюсь к…» в цикле ретраев) пишем один раз в 15с.
+        // Dedup: the same status (e.g. "connecting..." during a retry loop) is logged only once per 15s.
         val now = System.currentTimeMillis()
         if (text == lastStatusText && now - lastStatusAt < 15_000) return
         lastStatusText = text
@@ -105,17 +105,17 @@ class GatewayService : Service() {
         handler.post { storeStatus(text) }
     }
 
-    /** Публикация в MQTT вне main-thread. Безопасна после стопа моста. */
+    /** Publishes to MQTT off the main thread. Safe after bridge stop. */
     private fun pub(block: () -> Unit) {
         runCatching { io.execute { runCatching(block) } }
     }
 
-    /** Транзитные проблемы подключения — только в лог (их чинит самовосстановление). */
+    /** Transient connection problems — log only (self-healing fixes them). */
     private fun logTransient(text: String) {
         statusG(text)
     }
 
-    /** Серьёзные ошибки: в лог + ТГ, но не чаще 5 раз за 5 минут. */
+    /** Serious errors: log + Telegram, but no more than 5 per 5 minutes. */
     private fun reportError(text: String) {
         statusG(text)
         val now = System.currentTimeMillis()
@@ -130,14 +130,14 @@ class GatewayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        // Репортим краш в ТГ, потом отдаём стандартному обработчику: процесс
-        // упадёт, а START_STICKY перезапустит сервис (см. onStartCommand null).
+// Report crash to TG, then pass to the default handler: the process
+// will crash and START_STICKY will restart the service (see onStartCommand null).
         if (crashGuardStarted.compareAndSet(false, true)) {
             originalUncaughtHandler = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, e ->
                 runCatching {
                     val now = System.currentTimeMillis()
-                    // Кулдаун: при краш-лупе не флудить ТГ повторными CRASH
+                    // Cooldown: don't flood TG with repeated CRASH reports during a crash loop
                     if (now - lastCrashAt > 20_000) {
                         lastCrashAt = now
                         TgNotify.report(getSharedPreferences("cfg", MODE_PRIVATE), "[Rover] CRASH: $e")
@@ -150,7 +150,7 @@ class GatewayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    /** BLE-телеметрия ESP32 → топик MQTT esptelemetry. */
+    /** ESP32 BLE telemetry → MQTT esptelemetry topic. */
     private fun bridgeTelemetry(owner: GatewayService): (ByteArray) -> Unit = { data ->
         val t = Protocol.decodeTelemetry(data)
         if (t != null) {
@@ -178,7 +178,7 @@ class GatewayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            null -> if (!running) start() // перезапуск ОС после гибели процесса — поднимаем мост заново
+            null -> if (!running) start() // restart the bridge after process death
             ACTION_START -> start()
             ACTION_STOP -> {
                 running = false
@@ -187,9 +187,9 @@ class GatewayService : Service() {
                 stopSelf()
             }
             ACTION_BLE_CMD -> {
-                // Прямое управление с телефона по BLE (вкладка «Управление»).
+                // Direct phone control via BLE (Control tab).
                 if (!running) {
-                    appendLog("SYS", "Шлюз не запущен — нажми «Запустить»")
+                    appendLog("SYS", "Gateway not running — tap \"Start\"")
                     stopSelf(startId)
                 } else {
                     handleLocalCommand(intent)
@@ -204,10 +204,10 @@ class GatewayService : Service() {
         bridgeStarted = true
         prefs = getSharedPreferences("cfg", MODE_PRIVATE)
         running = true
-        startForeground(NOTIF_ID, buildNotification("Запуск..."))
+        startForeground(NOTIF_ID, buildNotification("Starting..."))
         acquireWakeLock()
         appendLog("SYS", "=== Gateway start ===")
-        // Всё тяжёлое (подключение MQTT, скан BLE) — в фоне, чтобы не морозить UI.
+        // All heavy work (MQTT connect, BLE scan) is in the background to avoid freezing the UI.
         thread { startBridge() }
         scheduleSupervisor()
     }
@@ -215,13 +215,13 @@ class GatewayService : Service() {
     private fun acquireWakeLock() {
         val pm = getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
         wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "rover::bridge")
-            .apply { acquire(6 * 60 * 60 * 1000L) } // таймаут, чтобы не было утечки
+            .apply { acquire(6 * 60 * 60 * 1000L) } // timeout to prevent leaks
     }
 
     private val supervisor = object : Runnable {
         override fun run() {
             if (!running) return
-            mqtt?.ensureConnected() // Paho сам не ретраит первичный фейл — лечим по таймеру
+            mqtt?.ensureConnected() // Paho doesn't retry the initial failure — we fix it with a timer
             handler.postDelayed(this, 5000)
         }
     }
@@ -233,21 +233,21 @@ class GatewayService : Service() {
 
     private fun startBridge() {
         runCatching { runBridge() }.onFailure { t ->
-            appendLog("SYS", "ОШИБКА МОСТА: $t")
+            appendLog("SYS", "BRIDGE ERROR: $t")
             reportError("bridge crashed: ${t.message ?: t}")
         }
     }
 
     private fun runBridge() {
-        val broker = prefs.getString(KEY_BROKER, DEFAULT_BROKER) ?: DEFAULT_BROKER
-        val user = prefs.getString(KEY_USER, "roverCred") ?: "roverCred"
-        val pass = prefs.getString(KEY_PASS, "mqttHIVE!2#") ?: "mqttHIVE!2#"
+        val broker = prefs.getString(KEY_BROKER, "") ?: ""
+        val user = prefs.getString(KEY_USER, "") ?: ""
+        val pass = prefs.getString(KEY_PASS, "") ?: ""
         appendLog("SYS", "broker=$broker  user=$user")
 
-        // Датчики телефона
+        // Phone sensors
         sensors = SensorHub(this)
 
-        // BLE → мостят в MQTT
+        // BLE → bridge to MQTT
         ble = BleClient(this) { statusG(it) }.also { b ->
             b.onTelemetry = bridgeTelemetry(this)
             b.onError = { logTransient("BLE: ${it}") }
@@ -264,7 +264,7 @@ class GatewayService : Service() {
             b.startScan()
         }
 
-        // MQTT: слушаем команды
+        // MQTT: listen for commands
         mqtt = MqttClient(broker, "rover-gw-" + (android.provider.Settings.Secure.getString(
             contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "phone"), ::statusG).also { m ->
             m.configure(user, pass)
@@ -282,7 +282,7 @@ class GatewayService : Service() {
             m.connect(listOf("$topicPrefix/cmd", "$topicPrefix/action", "$topicPrefix/config"))
         }
 
-        // Периодическая телеметрия телефона — отдельный worker, не main/UI.
+// Periodic phone telemetry — separate worker, not main/UI thread.
         sensorTask?.cancel(false)
         sensorTask = sensorScheduler.scheduleWithFixedDelay(
             {
@@ -292,7 +292,7 @@ class GatewayService : Service() {
                     val payload = s.buildJson().toString()
                     pub { mm.publish("$topicPrefix/sensors", payload) }
                 }.onFailure {
-                    appendLog("SENSOR", "ошибка телеметрии: ${it.message}")
+                    appendLog("SENSOR", "telemetry error: ${it.message}")
                 }
             },
             0L,
@@ -302,9 +302,9 @@ class GatewayService : Service() {
     }
 
     private fun handleMqttMessage(topic: String, payload: String) {
-        // Вызывается из Paho-delivery потока — не должен ронять процесс.
+        // Called from Paho-delivery thread — must not crash the process.
         runCatching { doHandleMqtt(topic, payload) }.onFailure {
-            appendLog("MQTT_RX", "ошибка обработки: ${it.message}")
+            appendLog("MQTT_RX", "parse error: ${it.message}")
         }
     }
 
@@ -312,7 +312,7 @@ class GatewayService : Service() {
         appendLog("MQTT_RX", "$topic: $payload")
         val b = ble ?: return
         if (!b.connected) {
-            statusG("MQTT: команда получена, но BLE не подключён")
+            statusG("MQTT: command received, but BLE not connected")
             return
         }
         val jo = runCatching { JSONObject(payload) }.getOrNull() ?: return
@@ -362,11 +362,11 @@ class GatewayService : Service() {
         b.writeCommand(packet)
     }
 
-    /** Локальная команда с панели управления телефона → сразу в BLE. */
+    /** Local phone command from the control panel → straight to BLE. */
     private fun handleLocalCommand(intent: Intent) {
         val b = ble ?: return
         if (!b.connected) {
-            statusG("Телефон: BLE не подключён — команда не отправлена")
+            statusG("Phone: BLE not connected — command not sent")
             return
         }
         val cmd = intent.getStringExtra(EXTRA_CMD) ?: return
@@ -403,7 +403,7 @@ class GatewayService : Service() {
             else -> return
         }
         if (packet != null) {
-            statusG("Телефон → BLE: $cmdType seq=$s")
+            statusG("Phone → BLE: $cmdType seq=$s")
             appendLog("LOCAL_TX", "${packet.joinToString("") { "%02X".format(it) }} (${packet.size} bytes)  cmd=$cmdType")
             b.writeCommand(packet)
         }
@@ -423,8 +423,8 @@ class GatewayService : Service() {
         runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
         wakeLock = null
         bridgeStarted = false
-        // Не закрываем worker-ы здесь: Android может прислать ACTION_START
-        // этому же экземпляру Service после STOP.
+        // Don't close workers here: Android may deliver ACTION_START
+        // to this same Service instance after STOP.
     }
 
     override fun onDestroy() {
@@ -451,7 +451,7 @@ class GatewayService : Service() {
             .setContentTitle("Rover Gateway")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .addAction(0, "Стоп", pendingStop)
+            .addAction(0, "Stop", pendingStop)
             .setOngoing(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()

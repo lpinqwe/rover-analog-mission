@@ -3,8 +3,8 @@ package com.rover.gateway
 import java.util.UUID
 
 /**
- * Зеркало firmware/src/proto.h.
- * Команды, кодирование пакетов, декодирование телеметрии.
+ * Mirror of firmware/src/proto.h.
+ * Commands, packet encoding, telemetry decoding.
  */
 object Protocol {
 
@@ -17,7 +17,7 @@ object Protocol {
         val TELEMETRY = UUID.fromString("12345678-1234-5678-1234-56789abcdef2")
     }
 
-    // Команды (совпадают с proto.h)
+    // Commands (match proto.h)
     const val CMD_DRIVE = 0x01
     const val CMD_STOP = 0x02
     const val CMD_LIGHT = 0x03
@@ -27,8 +27,8 @@ object Protocol {
     const val CMD_RESET = 0x07
 
     /**
-     * Собирает пакет [magic][seq][cmd][payload...][xor].
-     * Итоговый XOR всех байт == 0 (совпадает с проверкой в прошивке).
+     * Builds a packet [magic][seq][cmd][payload...][xor].
+     * Final XOR of all bytes == 0 (matches firmware check).
      */
     fun buildCard(cmd: Int, seq: Int, payload: ByteArray = ByteArray(0)): ByteArray {
         val out = ByteArray(3 + payload.size + 1)
@@ -51,18 +51,18 @@ object Protocol {
     fun stopSeq(cmd: Int, seq: Int): ByteArray =
         buildCard(cmd, seq)
 
-    /** Декодирует телеметрию от ESP32. */
+    /** Decodes telemetry from ESP32. */
     data class Telemetry(
         val connected: Boolean,
         val tilted: Boolean,
         val watchdogStop: Boolean,
-        val batteryVolts: Int,     // десятые вольта
+        val batteryVolts: Int,     // tenths of volts
         val leftPwm: Int,          // 0..100
         val rightPwm: Int,
         val tempC: Int,            // °C
-        val ackSeq: Int,           // последняя подтверждённая команда
+        val ackSeq: Int,           // last acknowledged command
         val ackStatus: Int,
-        val tiltTenths: Int,       // десятые градуса
+        val tiltTenths: Int,       // tenths of degrees
         val legBits: Int,
     )
 

@@ -10,10 +10,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.SSLContext
 
 /**
- * Тонкая обёртка над Paho MQTT v3.
- * Сам чинит себя: [ensureConnected] по таймеру из GatewayService переподнимает
- * связь, если она отвалилась или первый connect не удался (Paho сам не ретраит
- * первичное подключение и оставляет client в null).
+ * Thin wrapper over Paho MQTT v3.
+ * Self-healing: [ensureConnected] on a timer from GatewayService restarts
+ * the connection if it dropped or the initial connect failed (Paho doesn't retry
+ * the primary connection and leaves the client in null).
  */
 class MqttClient(
     private val brokerUri: String,
@@ -52,11 +52,11 @@ class MqttClient(
             connected = false
         }
         if (!connecting.compareAndSet(false, true)) return
-        status("MQTT: подключаюсь к $brokerUri...")
+        status("MQTT: connecting to $brokerUri...")
         Thread {
             try {
                 val opts = MqttConnectOptions().apply {
-                    // сами переподключаемся через ensureConnected (Paho не ретраит первичный фейл)
+                    // we reconnect via ensureConnected (Paho doesn't retry the initial failure)
                     isAutomaticReconnect = false
                     isCleanSession = false
                     connectionTimeout = 15
@@ -76,7 +76,7 @@ class MqttClient(
                         runCatching {
                             connected = true
                             onConnectedChange?.invoke(true)
-                            status("MQTT: подключён${if (reconnect) " (reconnect)" else ""}")
+                            status("MQTT: connected${if (reconnect) " (reconnect)" else ""}")
                             topics.forEach { t ->
                                 runCatching { c2.subscribe(t, 0) }
                             }
@@ -87,8 +87,8 @@ class MqttClient(
                         runCatching {
                             connected = false
                             onConnectedChange?.invoke(false)
-                            status("MQTT: потеряна связь — переподключаюсь")
-                            onError?.invoke("связь потеряна, переподключение")
+                            status("MQTT: connection lost — reconnecting")
+                            onError?.invoke("connection lost, reconnecting")
                         }
                     }
 
@@ -102,11 +102,11 @@ class MqttClient(
                 runCatching { c2.connect(opts) }.getOrElse { t ->
                     client = null
                     connected = false
-                    status("MQTT: ошибка подключения")
-                    onError?.invoke("нет связи с брокером")
+                    status("MQTT: connection error")
+                    onError?.invoke("cannot reach broker")
                 }
             } catch (t: Throwable) {
-                // ни один фоновый поток не должен ронять процесс
+                // no background thread should crash the process
                 client = null
                 connected = false
             } finally {

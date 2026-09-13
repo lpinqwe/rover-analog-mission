@@ -1,18 +1,18 @@
 /**
- * Ровер-пульт через Telegram (альтернатива ПК-консоли).
+ * Rover controller via Telegram (alternative to PC console).
  *
- * Может работать на ЛЮБОМ токене бота, в т.ч. на том же,
- * через который получаешь APK. Чат, куда пишешь, и есть пульт.
+ * Can work with ANY bot token, including the one used to ship the APK.
+ * The chat you message IS the controller.
  *
- * Мост: Telegram <-> MQTT <-> Телефон-шлюз <-> BLE <-> ESP32.
+ * Bridge: Telegram <-> MQTT <-> Phone gateway <-> BLE <-> ESP32.
  *
- * Запуск:
+ * Run:
  *   BOT_TOKEN=1234:... ROVER_CHAT_ID=663450648 npm start
- *   (ROVER_CHAT_ID опционален — без него бот отзывается в любом чате)
+ *   (ROVER_CHAT_ID optional — without it the bot replies in any chat)
  *
- * Команды боту:
- *   /start   — меню с кнопками
- *   /status  — текущее состояние (GPS, батарея, наклон)
+ * Bot commands:
+ *   /start   — menu with buttons
+ *   /status  — current state (GPS, battery, tilt)
  */
 
 import TelegramBot from "node-telegram-bot-api";
@@ -34,9 +34,9 @@ const MOVES = {
   lt: { speed: 0.0, steer: 1.0 },
   rt: { speed: 0.0, steer: -1.0 },
 };
-const brokerUrl = process.env.BROKER_URL || "wss://ed44fbaa0a7a41afaf940381fb18cd2a.s1.eu.hivemq.cloud:8884/mqtt";
-const brokerUser = process.env.MQTT_USER || "roverCred";
-const brokerPass = process.env.MQTT_PASS || "mqttHIVE!2#";
+const brokerUrl = process.env.BROKER_URL || "";
+const brokerUser = process.env.MQTT_USER || "";
+const brokerPass = process.env.MQTT_PASS || "";
 
 const bot = new TelegramBot(TOKEN, { polling: true });
 
@@ -65,7 +65,7 @@ const keyboard = (keepBtns) => ({
   reply_markup: {
     keyboard: [
       [{ text: "fw ⬆" }, { text: "lt ⬅" }, { text: "rt ➡" }, { text: "bw ⬇" }],
-      [{ text: "Stop ⏹" }, { text: "Light 🔦" }, { text: "Ping" }],
+      [{ text: "Stop ⏹" }, { text: "Light 💡" }, { text: "Ping" }],
       [{ text: "Mine 1" }, { text: "Mine 2" }, { text: "Mine 3" }],
       [{ text: "/status" }],
     ],
@@ -77,7 +77,7 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = (msg.text || "").trim();
 
-  // Если задан ROVER_CHAT_ID — бот управляет ровером только из этого чата
+  // If ROVER_CHAT_ID is set — the rover is controlled only from this chat
   if (ALLOWED_CHAT && String(chatId) !== String(ALLOWED_CHAT)) {
     return;
   }
@@ -88,7 +88,7 @@ bot.on("message", async (msg) => {
   if (cmd.startsWith("/start")) {
     await bot.sendMessage(
       chatId,
-      "Rover remote. Buttons: arrows = movement, Stop, Light, Mines.\nHold movement briefly - between taps the rover keeps driving until you stop or steer.",
+      "Rover remote. Buttons: arrows = movement, Stop, Light, Mines.\nHold movement briefly — between taps the rover keeps driving until you stop or steer.",
       keyboard(),
     );
     return;
@@ -98,20 +98,20 @@ bot.on("message", async (msg) => {
   publisher(chatId, cmd);
 });
 
-// Отправляем команду в MQTT. Короткие рывки на стрелках-кнопках.
+// Send command to MQTT. Short bursts on arrow buttons.
 async function publisher(chatId, cmd) {
   const move = MOVES[cmd];
   if (move) {
     pub(TOPIC("cmd"), { speed: move.speed, steer: move.steer });
-    // Телефон-шлюз сам решает (BLE скорость/рамп). Бот шлёт однократно
-    // — робот едет до следующей команды. Для рывка шлём стоп через 800мс.
+    // The phone gateway decides (BLE speed/ramp). The bot sends once —
+    // the robot drives until the next command. For a burst send stop after 800ms.
     setTimeout(() => pub(TOPIC("cmd"), { speed: 0, steer: 0 }), 800);
     await bot.sendMessage(chatId, `Moving ${cmd}...`);
     return;
   }
   if (cmd === "стоп" || cmd === "stop") { pub(TOPIC("action"), { type: "stop" }); return replyOk(chatId, "Stop"); }
   if (cmd === "свет" || cmd === "light") {
-    // toggle неизвестен — спросим состояние. Простейший: вкл/выкл.
+    // toggle unknown — ask state. Simplest: on/off.
     const key = keyboard();
     await bot.sendMessage(chatId, "Choose:", {
       reply_markup: {
@@ -123,7 +123,8 @@ async function publisher(chatId, cmd) {
     return;
   }
   if (cmd.startsWith("мина") || cmd.startsWith("mine")) {
-    const i = parseInt(cmd.split(" ")[1] || "1", 10) - 1;
+    const parts = cmd.split(/\s+/);
+    const i = (parts.length > 1 ? parseInt(parts[1], 10) : 1) - 1;
     pub(TOPIC("action"), { type: "mine", channel: Math.max(0, i) });
     return replyOk(chatId, `Mine ${i + 1} triggered`);
   }
