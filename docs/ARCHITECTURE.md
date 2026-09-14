@@ -5,28 +5,26 @@
 The Rover system consists of four main containers interacting over BLE and MQTT:
 
 ```mermaid
-C4Context
-    title C2 — System Context: Rover telepresence system
+flowchart LR
+    OPN["Operator<br/>(Telegram / browser)"]
+    PHO["Phone Operator<br/>(direct BLE joystick)"]
 
-    Person(operator, "Operator", "Remote user controlling the rover via Telegram or browser")
-    Person(phoneOperator, "Phone Operator", "Local user with direct BLE control in the Android app")
+    subgraph RV["Rover System"]
+        ESP["ESP32-S3 Firmware"]
+        GW["Android Gateway"]
+        BR["MQTT Broker"]
+        TB["Telegram Bot"]
+        DA["Desktop App"]
+    end
 
-    System_Boundary(roverSystem, "Rover System") {
-        System(firmware, "ESP32-S3 Firmware", "Rover control: motors, sensors, camera; BLE GATT server")
-        System(gateway, "Android Gateway", "Bridges BLE and MQTT; phone sensor source; control UI")
-        System(bot, "Telegram Bot", "Remote control and status notifications via Telegram")
-        System(desktop, "Desktop App", "Browser / Electron control and telemetry UI")
-        SystemDb(broker, "MQTT Broker", "Public broker: HiveMQ / EMQX / Mosquitto")
-    }
+    OPN -- "Telegram commands / status" --> TB
+    OPN -- "Control + telemetry UI" --> DA
+    PHO -- "On-device joystick UI" --> GW
 
-    BiRel(firmware, gateway, "BLE (binary protocol, 13/18 bytes)")
-    BiRel(gateway, broker, "MQTT (JSON topics)")
-    BiRel(bot, broker, "MQTT")
-    BiRel(desktop, broker, "MQTT / WSS")
-
-    Rel(operator, bot, "Telegram commands / status")
-    Rel(operator, desktop, "Control + telemetry UI")
-    Rel(phoneOperator, gateway, "On-device joystick UI")
+    ESP <--> GW
+    GW <--> BR
+    TB <--> BR
+    DA <--> BR
 ```
 
 ### Actors
@@ -52,67 +50,73 @@ C4Context
 Everything inside the system boundary, per container:
 
 ```mermaid
-C4Component
-    title C3 — Component: internal structure of each container
+flowchart TB
+    OPN["Operator"]
 
-    Person(operator, "Operator")
+    subgraph SYS["Rover System"]
+        direction LR
 
-    System_Boundary(roverSystem, "Rover System") {
-        SystemDb(broker, "MQTT Broker", "HiveMQ / EMQX / Mosquitto")
+        subgraph FW["ESP32-S3 Firmware"]
+            direction TB
+            RC["Rover Core<br/>(state machine, commands)"]
+            BS["BLE Service<br/>(NimBLE GATT server)"]
+            MD["Motor Driver<br/>(L298N / MD12A / stub)"]
+            PR["Protocol<br/>(binary 13/18 bytes)"]
+            SH["Sensor Hub<br/>(IMU, temp, battery)"]
+            WD["Watchdog<br/>(30s timeout)"]
+            RC --- BS
+            RC --- MD
+            RC --- PR
+            RC --- SH
+            RC --- WD
+        end
 
-        Container_Boundary(fw, "ESP32-S3 Firmware (C++)") {
-            Component(roverCore, "Rover Core", "Main loop, state machine, command processing")
-            Component(bleSvc, "BLE Service", "NimBLE GATT server: CMD write / TELEMETRY notify")
-            Component(motorDrv, "Motor Driver", "L298N / MD12A (MC33926) / stub, switch in config.h")
-            Component(proto, "Protocol", "Binary encode/decode, magic+version+seq")
-            Component(sensorHub, "Sensor Hub", "MPU6050 IMU, temperature, battery voltage")
-            Component(watchdog, "Watchdog", "30s motor-safety timeout on BLE loss")
-        }
+        subgraph GT["Android Gateway"]
+            direction TB
+            MA["MainActivity<br/>(tabs, joystick)"]
+            GS["GatewayService<br/>(BLE-MQTT bridge)"]
+            BC["BleClient<br/>(self-healing BLE)"]
+            MC["MqttClient<br/>(Paho wrapper)"]
+            SH2["SensorHub<br/>(gravity/gyro)"]
+            TG["TgNotify<br/>(rate-limited alerts)"]
+            MA --> GS
+            GS --- BC
+            GS --- MC
+            SH2 --> GS
+            TG --> GS
+        end
 
-        Container_Boundary(and, "Android Gateway (Kotlin)") {
-            Component(mainAct, "MainActivity", "Settings / Control / Log tabs, joystick")
-            Component(gwSvc, "GatewayService", "Foreground service, BLE | MQTT bridge")
-            Component(ble, "BleClient", "BLE central, self-healing scan/reconnect/backoff")
-            Component(mqtt, "MqttClient", "Paho MQTT v3 wrapper, ensureConnected auto-repair")
-            Component(sensorHubA, "SensorHub", "Gravity/gyro readings -> sway/tilt commands")
-            Component(tg, "TgNotify", "Rate-limited Telegram alerts (6 msgs/min)")
-        }
+        subgraph BOT["Telegram Bot"]
+            direction TB
+            CH["Command Handler<br/>(/start, /status)"]
+            BM["MQTT Client"]
+            SR["Status Reporter"]
+            YP["YouTube Parser"]
+            CH --> BM
+            BM --- SR
+        end
 
-        Container_Boundary(tb, "Telegram Bot (Node.js)") {
-            Component(cmdHandler, "Command Handler", "/start, /status, callback buttons")
-            Component(botMqtt, "MQTT Client", "Subscribe telemetry, publish commands")
-            Component(statusRep, "Status Reporter", "Periodic status, error/crash alerts")
-            Component(yt, "YouTube Parser", "Validate + forward URLs to the rover")
-        }
+        subgraph DA["Desktop App"]
+            direction TB
+            UI["UI Renderer"]
+            JS["Joystick"]
+            SD["Status Display"]
+            MU["MQTT Client (WSS)"]
+            JS --> MU
+            MU --- SD
+        end
 
-        Container_Boundary(da, "Desktop App (HTML/JS)") {
-            Component(ui, "UI Renderer", "Connection, video, telemetry widgets")
-            Component(joy, "Joystick", "Touch/mouse steering -> MQTT commands")
-            Component(statD, "Status Display", "Battery, motors, temp, tilt, GPS, gyro")
-            Component(mqttUi, "MQTT Client", "Paho MQTT over WSS")
-        }
-    }
+        subgraph BRK["MQTT Broker"]
+            BR["HiveMQ / EMQX / Mosquitto"]
+        end
+    end
 
-    Rel(operator, mainAct, "joystick / buttons")
-    Rel(mainAct, gwSvc, "bound service / intents")
-    Rel(gwSvc, ble, "BLE commands / telemetry callbacks")
-    Rel(ble, bleSvc, "BLE GATT (binary)")
-    Rel(gwSvc, mqtt, "publish / subscribe")
-    Rel(sensorHubA, gwSvc, "sway/tilt commands")
-    Rel(tg, gwSvc, "alerts on errors")
-
-    Rel(mqtt, broker, "MQTT")
-    Rel(botMqtt, broker, "MQTT")
-    Rel(mqttUi, broker, "WSS")
-    Rel(cmdHandler, botMqtt, "commands in / status out")
-    Rel(botMqtt, statusRep, "telemetry -> Telegram")
-    Rel(joy, mqttUi, "movement commands")
-    Rel(mqttUi, statD, "incoming telemetry")
-
-    UpdateRelStyle(mqtt, broker, $textColor="blue", $lineColor="blue", $offsetX="-180")
-    UpdateRelStyle(botMqtt, broker, $textColor="blue", $lineColor="blue", $offsetX="120")
-    UpdateRelStyle(mqttUi, broker, $textColor="blue", $lineColor="blue", $offsetX="120")
-    UpdateRelStyle(ble, bleSvc, $textColor="green", $lineColor="green")
+    OPN -- "joystick / buttons" --> MA
+    BC -- "BLE GATT (binary)" --- BS
+    GS -- "publish / subscribe" --- MC
+    MC -- "MQTT" --- BR
+    BM -- "MQTT" --- BR
+    MU -- "WSS" --- BR
 ```
 
 ### ESP32 Firmware (C3)
